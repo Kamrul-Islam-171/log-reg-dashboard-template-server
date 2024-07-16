@@ -6,7 +6,7 @@ const bcrypt = require('bcrypt');
 
 const port = process.env.PORT || 5000;
 require('dotenv').config()
-// var jwt = require('jsonwebtoken');
+var jwt = require('jsonwebtoken');
 
 
 
@@ -30,23 +30,74 @@ const client = new MongoClient(uri, {
   }
 });
 
+const verifyToken = (req, res, next) => {
+  // console.log('inside = ', req.headers.authorization);
+  if (!req.headers.authorization) {
+
+
+    return res.status(401).send({ message: 'Forbidden-Access' });
+  }
+  const token = req.headers.authorization.split(' ')[1];
+  // console.log(token)
+
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
+    if (err) {
+
+      return res.status(401).send({ message: 'Forbidden-Access' });
+    }
+    req.decoded = decoded;
+    console.log('decoded value = ',decoded);
+
+    next();
+  });
+
+}
+
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     const userCollection = client.db('MFS').collection('usersCollection');
 
-    app.get('/users', async(req, res) => {
-        const users = await userCollection.find().toArray();
-        res.send(users);
+    app.post('/jwt', async (req, res) => {
+      const user = req.body;
+      // console.log('user info =', user)
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '8h' });
+      res.send({ token })
     })
 
-    app.post('/users', async(req, res) => {
+    app.get('/users', async (req, res) => {
+      const users = await userCollection.find().toArray();
+      res.send(users);
+    })
+
+    app.get('/my-name',verifyToken , async (req, res) => {
+      // console.log('hello');
+      // console.log('body = ', req.body);
+      // res.send({message:'hello'})
+    })
+
+    app.post('/users', async (req, res) => {
       const info = req.body;
       const hash = await bcrypt.hash(info.pin, 10);
       info.pin = hash;
       const user = await userCollection.insertOne(info);
       res.send(user);
+    })
+
+    app.get('/userLogin', async (req, res) => {
+      // console.log(req.body);
+      const { email, pin } = req.query;
+      // console.log(email)
+      const user = await userCollection.findOne({ email: email });
+      if (!user) {
+        return res.send({ message: 'User not found' });
+      }
+      const hashPin = await bcrypt.compare(pin, user.pin);
+      if (!hashPin) {
+        res.send({ message: 'Pass not matched' })
+      }
+      res.send({ message: 'matched' });
     })
 
     // Send a ping to confirm a successful connection
